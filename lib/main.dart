@@ -227,7 +227,7 @@ class _CalculatorPageState extends State<CalculatorPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('ক্যালকুলেটর'),
+        title: const Text('Flutter Calculator App'),
         actions: [
           Row(
             children: [
