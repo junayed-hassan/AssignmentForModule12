@@ -1,122 +1,358 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-void main() {
-  runApp(const MyApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final prefs = await SharedPreferences.getInstance();
+  final savedDark = prefs.getBool('isDark') ?? false;
+  runApp(CalculatorApp(initialDark: savedDark));
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class CalculatorApp extends StatefulWidget {
+  final bool initialDark;
+  const CalculatorApp({Key? key, required this.initialDark}) : super(key: key);
 
-  // This widget is the root of your application.
+  @override
+  State<CalculatorApp> createState() => _CalculatorAppState();
+}
+
+class _CalculatorAppState extends State<CalculatorApp> {
+  late bool _isDark;
+
+  @override
+  void initState() {
+    super.initState();
+    _isDark = widget.initialDark;
+  }
+
+  void _toggleTheme(bool value) async {
+    setState(() => _isDark = value);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isDark', _isDark);
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      debugShowCheckedModeBanner: false,
+      title: 'Flutter Calculator',
+      themeMode: _isDark ? ThemeMode.dark : ThemeMode.light,
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        brightness: Brightness.light,
+        primarySwatch: Colors.indigo,
+        scaffoldBackgroundColor: Colors.grey[100],
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      darkTheme: ThemeData(
+        brightness: Brightness.dark,
+        primarySwatch: Colors.indigo,
+        scaffoldBackgroundColor: Colors.black,
+      ),
+      home: CalculatorPage(isDark: _isDark, onThemeChanged: _toggleTheme),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+class CalculatorPage extends StatefulWidget {
+  final bool isDark;
+  final ValueChanged<bool> onThemeChanged;
 
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+  const CalculatorPage({
+    Key? key,
+    required this.isDark,
+    required this.onThemeChanged,
+  }) : super(key: key);
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<CalculatorPage> createState() => _CalculatorPageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _CalculatorPageState extends State<CalculatorPage> {
+  String _display = '0';
+  String _lastPressed = '';
+  double? _firstOperand;
+  String? _operator;
+  bool _shouldClearDisplayOnNextDigit = false;
 
-  void _incrementCounter() {
+  static const List<String> operators = ['+', '-', '×', '÷'];
+
+  void _onDigitPressed(String digit) {
     setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+      if (_shouldClearDisplayOnNextDigit || _display == '0') {
+        _display = digit;
+        _shouldClearDisplayOnNextDigit = false;
+      } else {
+        _display += digit;
+      }
+      _lastPressed = 'digit';
     });
+  }
+
+  void _onDecimalPressed() {
+    setState(() {
+      if (_shouldClearDisplayOnNextDigit) {
+        _display = '0.';
+        _shouldClearDisplayOnNextDigit = false;
+        _lastPressed = '.';
+        return;
+      }
+      if (!_display.contains('.')) {
+        _display += '.';
+      }
+      _lastPressed = '.';
+    });
+  }
+
+  void _onAllClear() {
+    setState(() {
+      _display = '0';
+      _firstOperand = null;
+      _operator = null;
+      _lastPressed = '';
+      _shouldClearDisplayOnNextDigit = false;
+    });
+  }
+
+  void _onOperatorPressed(String op) {
+    setState(() {
+      // Prevent multiple operators in a row: if last was operator, replace it
+      if (_lastPressed == 'operator') {
+        _operator = op;
+        return;
+      }
+
+      // If there's an existing operator, compute first
+      if (_operator != null && _firstOperand != null) {
+        _compute();
+      } else {
+        _firstOperand = double.tryParse(_display);
+      }
+
+      _operator = op;
+      _shouldClearDisplayOnNextDigit = true;
+      _lastPressed = 'operator';
+    });
+  }
+
+  void _onEqualPressed() {
+    setState(() {
+      if (_operator == null || _firstOperand == null) return;
+      _compute();
+      _operator = null;
+      _firstOperand = null;
+      _lastPressed = 'equal';
+      _shouldClearDisplayOnNextDigit = true;
+    });
+  }
+
+  void _compute() {
+    final secondOperand = double.tryParse(_display) ?? 0;
+    double result = 0;
+    switch (_operator) {
+      case '+':
+        result = (_firstOperand ?? 0) + secondOperand;
+        break;
+      case '-':
+        result = (_firstOperand ?? 0) - secondOperand;
+        break;
+      case '×':
+        result = (_firstOperand ?? 0) * secondOperand;
+        break;
+      case '÷':
+        if (secondOperand == 0) {
+          _display = 'Error';
+          _firstOperand = null;
+          _operator = null;
+          _shouldClearDisplayOnNextDigit = true;
+          return;
+        }
+        result = (_firstOperand ?? 0) / secondOperand;
+        break;
+      default:
+        return;
+    }
+
+    // Format result: remove trailing .0 when possible
+    String text;
+    if (result % 1 == 0) {
+      text = result.toInt().toString();
+    } else {
+      // limit to reasonable decimal places
+      text = result.toStringAsPrecision(12);
+      // remove trailing zeros and possible trailing dot
+      text = double.parse(text).toString();
+    }
+
+    _display = text;
+    _firstOperand = double.tryParse(_display);
+  }
+
+  Widget _buildButton(
+    String label, {
+    double flex = 1,
+    Color? color,
+    VoidCallback? onTap,
+  }) {
+    final theme = Theme.of(context);
+    final isOperator = operators.contains(label) || label == '=';
+
+    return Expanded(
+      flex: flex.toInt(),
+      child: Padding(
+        padding: const EdgeInsets.all(6.0),
+        child: ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            padding: const EdgeInsets.all(20),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            backgroundColor:
+                color ?? (isOperator ? theme.colorScheme.secondary : null),
+            foregroundColor: theme.colorScheme.onPrimary,
+            elevation: 2,
+          ),
+          onPressed: onTap,
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
+    final media = MediaQuery.of(context);
+    final isPortrait = media.orientation == Orientation.portrait;
+
     return Scaffold(
       appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+        title: const Text('ক্যালকুলেটর'),
+        actions: [
+          Row(
+            children: [
+              const Text('Light'),
+              Switch(value: widget.isDark, onChanged: widget.onThemeChanged),
+              const Text('Dark'),
+              const SizedBox(width: 8),
+            ],
+          ),
+        ],
       ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Column(
+            children: [
+              Expanded(
+                flex: isPortrait ? 3 : 2,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 24,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        reverse: true,
+                        child: Text(
+                          _display,
+                          style: TextStyle(
+                            fontSize: 48,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          maxLines: 1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Expanded(
+                flex: 5,
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        _buildButton(
+                          'AC',
+                          onTap: _onAllClear,
+                          color: Colors.redAccent,
+                        ),
+                        _buildButton('÷', onTap: () => _onOperatorPressed('÷')),
+                        _buildButton('×', onTap: () => _onOperatorPressed('×')),
+                        _buildButton('-', onTap: () => _onOperatorPressed('-')),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        _buildButton('7', onTap: () => _onDigitPressed('7')),
+                        _buildButton('8', onTap: () => _onDigitPressed('8')),
+                        _buildButton('9', onTap: () => _onDigitPressed('9')),
+                        _buildButton('+', onTap: () => _onOperatorPressed('+')),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        _buildButton('4', onTap: () => _onDigitPressed('4')),
+                        _buildButton('5', onTap: () => _onDigitPressed('5')),
+                        _buildButton('6', onTap: () => _onDigitPressed('6')),
+                        _buildButton(
+                          '=',
+                          onTap: _onEqualPressed,
+                          color: Colors.green,
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        _buildButton('1', onTap: () => _onDigitPressed('1')),
+                        _buildButton('2', onTap: () => _onDigitPressed('2')),
+                        _buildButton('3', onTap: () => _onDigitPressed('3')),
+                        _buildButton('.', onTap: _onDecimalPressed),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        _buildButton(
+                          '0',
+                          flex: 2,
+                          onTap: () => _onDigitPressed('0'),
+                        ),
+                        _buildButton('00', onTap: () => _onDigitPressed('00')),
+                        _buildButton('%', onTap: _onPercentPressed),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
+  }
+
+  void _onPercentPressed() {
+    setState(() {
+      final value = double.tryParse(_display) ?? 0;
+      final result = value / 100;
+      // format
+      if (result % 1 == 0) {
+        _display = result.toInt().toString();
+      } else {
+        _display = double.parse(result.toStringAsPrecision(12)).toString();
+      }
+      _shouldClearDisplayOnNextDigit = true;
+      _lastPressed = '%';
+    });
   }
 }
